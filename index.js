@@ -1,5 +1,3 @@
-import express from "express";
-import morgan from "morgan";
 import dotenv from "dotenv";
 import TelegramBot from "node-telegram-bot-api";
 import getToken from "./autorization/getToken.js";
@@ -54,7 +52,6 @@ let interval = {
 };
 
 dotenv.config();
-const app = express();
 const bot_tg = new TelegramBot(process.env.API_KEY_BOT, {
   polling: {
     interval: 200,
@@ -63,25 +60,50 @@ const bot_tg = new TelegramBot(process.env.API_KEY_BOT, {
 });
 
 async function main() {
-  app.use(morgan("tiny"));
   bot_tg.on("polling_error", (err) => console.log(err.data.error.message));
   console.log(`🚀 Server running in ${process.env.NODE_ENV} mode`);
 
-  const unreadChatsId = [];
-  const answeredChatsId = [];
+  const unreadChatsId = new Set();
+  const answeredChatsId = new Set();
   const messageChatsId = new Set();
   let isWorking = true;
+  let userInterval = process.env.INTERVAL;
 
   bot_tg.on("text", async (msg) => {
     if (msg.text === "/start") {
-      await bot_tg.sendMessage(msg.chat.id, "Активен");
+      await bot_tg.sendMessage(
+        msg.chat.id,
+        "Авито Автоответы v1.0.0\n\nТех.поддержка: @GMTUSDT"
+      );
+    }
+    if (msg.text === "/add") {
       messageChatsId.add(msg.chat.id);
-      interval.make(bot, 3000)
+      isWorking = true;
+      messageChatsId.forEach(async (id) => {
+        await bot_tg.sendMessage(id, "Активен");
+      });
+
+      interval.make(bot, userInterval);
     }
     if (msg.text === "/stop") {
-      await bot_tg.sendMessage(msg.chat.id, "Выключен");
+      messageChatsId.forEach(async (id) => {
+        await bot_tg.sendMessage(id, "Выключен");
+      });
       isWorking = false;
-      interval.clearAll()
+      interval.clearAll();
+    }
+    if (msg.text === "/status") {
+      let messageString = "Текущий статус автоответчика: ";
+      messageString += isWorking ? "Работает" : "Не работает";
+      messageString += `\n\n${messageChatsId.size} пользователей в подписке.`;
+      await bot_tg.sendMessage(msg.chat.id, messageString);
+    }
+    if (msg.text === "/add_user") {
+      await bot_tg.sendMessage(
+        msg.chat.id,
+        "Вы добавлены в рассылку. \n\nПроверьте статус работы автоответчика."
+      );
+      messageChatsId.add(msg.chat.id);
     }
   });
 
@@ -95,30 +117,30 @@ async function main() {
 
     if (chats.length >= 1) {
       chats.forEach((el) => {
-        unreadChatsId.push(el.id);
+        unreadChatsId.add(el.id);
       });
     }
 
     unreadChatsId.forEach(async (el) => {
-      if (contains(answeredChatsId, el) !== el) {
+      if (!answeredChatsId.has(el)) {
         await sendMessage(process.env.USER_ID, el, current_token);
-        answeredChatsId.push(el);
-        unreadChatsId.remove(el);
+        answeredChatsId.add(el);
+        unreadChatsId.delete(el);
 
         const messageFromUser = chats.find((i) => {
           return i.id === el;
         });
 
+        let messageStr = "🟢 Новый клиент";
+        messageStr += `\n\nСообщение:`;
+        messageStr += `\n${messageFromUser.last_message.content.text}`;
+
         messageChatsId.forEach(async (id) => {
-          await bot_tg.sendMessage(
-            id,
-            messageFromUser.last_message.content.text
-          );
+          await bot_tg.sendMessage(id, messageStr);
         });
       }
     });
   };
-
 }
 
 main();
